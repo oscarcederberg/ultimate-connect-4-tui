@@ -1,20 +1,20 @@
 pub mod game;
 
 use crossterm::{self, cursor::*, queue, terminal::*};
-use game::{BoardType::{self, *}, PlayerType::*, SlotType::*};
+use game::{
+    BoardType::{self, *},
+    PlayerType::*,
+    SlotType::*,
+};
 use std::io::*;
 
 fn main() {
     let instance = game::Instance::new();
     let stdin = stdin();
     let stdout = stdout();
-    let mut program = Program {instance, stdout};
+    let mut program = Program { instance, stdout };
 
-    queue!(
-        program.stdout,
-        Clear(ClearType::All),
-        MoveTo(0, 0)
-    ).expect("queue failed");
+    queue!(program.stdout, Clear(ClearType::All), MoveTo(0, 0)).expect("queue failed");
 
     program.print_board(game::BoardType::Omega);
     program.stdout.flush().expect("flush failed");
@@ -24,11 +24,7 @@ fn main() {
         print!("\nUC4> ");
         program.stdout.flush().expect("flush failed");
 
-        queue!(
-            program.stdout,
-            Clear(ClearType::All),
-            MoveTo(0, 0)
-        ).expect("queue failed");
+        queue!(program.stdout, Clear(ClearType::All), MoveTo(0, 0)).expect("queue failed");
 
         if stdin.read_line(input).is_ok() {
             program.handle_input(input.trim());
@@ -75,7 +71,7 @@ impl Program {
                 }
 
                 self.print_board(Omega);
-            },
+            }
             "a" | "alpha" => {
                 if arguments.len() != 3 {
                     println!("could not read arguments `{:?}`", arguments);
@@ -87,7 +83,7 @@ impl Program {
                 } else {
                     println!("could not read arguments `{:?}`", arguments);
                 }
-            },
+            }
             _ => {
                 println!("could not read arguments `{:?}`", arguments);
             }
@@ -95,6 +91,29 @@ impl Program {
     }
 
     fn play(&mut self, arguments: Vec<&str>) {
+        if arguments.len() != 3 {
+            println!("could not read arguments `{:?}`", arguments);
+            return;
+        }
+
+        let board: usize;
+        let column: usize;
+
+        if let Ok(value) = arguments[2].parse::<usize>() {
+            board = value;
+        } else {
+            println!("could not read arguments `{:?}`", arguments);
+            return;
+        }
+
+        if let Ok(value) = arguments[3].parse::<usize>() {
+            column = value;
+        } else {
+            println!("could not read arguments `{:?}`", arguments);
+            return;
+        }
+
+        let result = self.instance.play(Alpha(board), column);
     }
 
     fn print_board(&mut self, board: BoardType) {
@@ -117,8 +136,20 @@ impl Program {
                 let slot = board.get_slot(row, col).unwrap();
                 match slot {
                     Empty => queue!(self.stdout, Print("[ ]")).expect("queue failed"),
-                    Filled(First) => queue!(self.stdout, Print("["), PrintStyledContent("O".with(Color::Blue)), Print("]")).expect("queue failed"),
-                    Filled(Second) => queue!(self.stdout, Print("["), PrintStyledContent("O".with(Color::Red)), Print("]")).expect("queue failed"),
+                    Filled(First) => queue!(
+                        self.stdout,
+                        Print("["),
+                        PrintStyledContent("O".with(Color::Blue)),
+                        Print("]")
+                    )
+                    .expect("queue failed"),
+                    Filled(Second) => queue!(
+                        self.stdout,
+                        Print("["),
+                        PrintStyledContent("O".with(Color::Red)),
+                        Print("]")
+                    )
+                    .expect("queue failed"),
                 }
             }
             queue!(self.stdout, Print("\n")).expect("queue failed");
@@ -126,4 +157,3 @@ impl Program {
         self.stdout.flush().expect("flush failed");
     }
 }
-
