@@ -24,13 +24,13 @@ impl Default for Instance {
 impl Instance {
     pub fn new() -> Self {
         let alpha_boards = [
+            Board::new(Alpha(0)),
             Board::new(Alpha(1)),
             Board::new(Alpha(2)),
             Board::new(Alpha(3)),
             Board::new(Alpha(4)),
             Board::new(Alpha(5)),
             Board::new(Alpha(6)),
-            Board::new(Alpha(7)),
         ];
         let omega_board = Board::new(BoardType::Omega);
         let turn = PlayerType::First;
@@ -43,9 +43,7 @@ impl Instance {
 
     pub fn get_board(&self, board: BoardType) -> Option<&Board> {
         match board {
-            Alpha(alpha) if alpha > 0 && alpha <= ALPHA_BOARDS_NUM => {
-                Some(&self.alpha_boards[alpha - 1])
-            }
+            Alpha(alpha) if alpha < ALPHA_BOARDS_NUM => Some(&self.alpha_boards[alpha]),
             Omega => Some(&self.omega_board),
             _ => None,
         }
@@ -53,10 +51,11 @@ impl Instance {
 
     pub fn play(&mut self, board: BoardType, col: usize) -> Option<GameMoveResult> {
         if let BoardType::Alpha(alpha) = board {
-            return match self.alpha_boards[alpha - 1].play(self.turn, col) {
+            return match self.alpha_boards[alpha].play(self.turn, col) {
                 Some(AlphaWin) => {
+                    let result = Some(self.play_omega(alpha));
                     self.switch_turn();
-                    Some(self.play_omega(col))
+                    result
                 }
                 Some(result) => {
                     self.switch_turn();
@@ -99,13 +98,9 @@ impl Board {
     }
 
     fn play(&mut self, player: PlayerType, col: usize) -> Option<GameMoveResult> {
-        if col <= 0 || col > BOARD_COLS {
-            return None;
-        } else if !matches!(self.slots[col - 1][0], Empty) {
+        if col >= BOARD_COLS {
             return None;
         }
-
-        let col = col - 1;
 
         for row in (0..BOARD_ROWS).rev() {
             if self.slots[row][col] == Empty {
