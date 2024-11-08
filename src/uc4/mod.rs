@@ -108,7 +108,6 @@ impl Board {
         let col = col - 1;
 
         for row in (0..BOARD_ROWS).rev() {
-            println!("checking ({},{})... = {:?}", row, col, self.slots[row][col]);
             if self.slots[row][col] == Empty {
                 self.slots[row][col] = Filled(player);
 
