@@ -1,22 +1,22 @@
-pub mod game;
+pub mod uc4;
 
 use crossterm::{self, cursor::*, queue, terminal::*};
-use game::{
+use std::io::*;
+use uc4::{
     BoardType::{self, *},
     PlayerType::*,
     SlotType::*,
 };
-use std::io::*;
 
 fn main() {
-    let instance = game::Instance::new();
+    let instance = uc4::Instance::new();
     let stdin = stdin();
     let stdout = stdout();
     let mut program = Program { instance, stdout };
 
-    queue!(program.stdout, Clear(ClearType::All), MoveTo(0, 0)).expect("queue failed");
+    // queue!(program.stdout, Clear(ClearType::All), MoveTo(0, 0)).expect("queue failed");
 
-    program.print_board(game::BoardType::Omega);
+    program.print_board(uc4::BoardType::Omega);
     program.stdout.flush().expect("flush failed");
 
     loop {
@@ -24,7 +24,7 @@ fn main() {
         print!("\nUC4> ");
         program.stdout.flush().expect("flush failed");
 
-        queue!(program.stdout, Clear(ClearType::All), MoveTo(0, 0)).expect("queue failed");
+        // queue!(program.stdout, Clear(ClearType::All), MoveTo(0, 0)).expect("queue failed");
 
         if stdin.read_line(input).is_ok() {
             program.handle_input(input.trim());
@@ -35,7 +35,7 @@ fn main() {
 }
 
 struct Program {
-    instance: game::Instance,
+    instance: uc4::Instance,
     stdout: Stdout,
 }
 
@@ -99,14 +99,14 @@ impl Program {
         let board: usize;
         let column: usize;
 
-        if let Ok(value) = arguments[2].parse::<usize>() {
+        if let Ok(value) = arguments[1].parse::<usize>() {
             board = value;
         } else {
             println!("could not read arguments `{:?}`", arguments);
             return;
         }
 
-        if let Ok(value) = arguments[3].parse::<usize>() {
+        if let Ok(value) = arguments[2].parse::<usize>() {
             column = value;
         } else {
             println!("could not read arguments `{:?}`", arguments);
@@ -114,6 +114,13 @@ impl Program {
         }
 
         let result = self.instance.play(Alpha(board), column);
+        match result {
+            Some(result) => {
+                self.print_board(Alpha(board));
+                println!("played on board alpha {}", board);
+            }
+            None => println!("could not perform play with arguments `{:?}`", arguments),
+        }
     }
 
     fn print_board(&mut self, board: BoardType) {
@@ -126,13 +133,13 @@ impl Program {
 
         let board = self.instance.get_board(board).unwrap();
 
-        for col in 0..game::BOARD_COLS {
+        for col in 0..uc4::BOARD_COLS {
             print!(" {} ", col);
         }
         println!();
 
-        for row in 0..game::BOARD_ROWS {
-            for col in 0..game::BOARD_COLS {
+        for row in 0..uc4::BOARD_ROWS {
+            for col in 0..uc4::BOARD_COLS {
                 let slot = board.get_slot(row, col).unwrap();
                 match slot {
                     Empty => queue!(self.stdout, Print("[ ]")).expect("queue failed"),

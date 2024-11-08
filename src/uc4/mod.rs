@@ -1,12 +1,15 @@
-use crate::game::{BoardType::*, GameMoveResult::*, SlotType::*, WinConditionLines::*};
+use serde::{Deserialize, Serialize};
+
+use crate::uc4::{
+    BoardType::*, GameMoveResult::*, PlayerType::*, SlotType::*, WinConditionLines::*,
+};
 
 pub const BOARD_ROWS: usize = 6;
 pub const BOARD_COLS: usize = 7;
 pub const ALPHA_BOARDS_NUM: usize = BOARD_COLS;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct Instance {
-    alpha_boards_available: [bool; ALPHA_BOARDS_NUM],
     alpha_boards: [Board; ALPHA_BOARDS_NUM],
     omega_board: Board,
     turn: PlayerType,
@@ -20,7 +23,6 @@ impl Default for Instance {
 
 impl Instance {
     pub fn new() -> Self {
-        let alpha_boards_available = [true; ALPHA_BOARDS_NUM];
         let alpha_boards = [
             Board::new(Alpha(1)),
             Board::new(Alpha(2)),
@@ -33,7 +35,6 @@ impl Instance {
         let omega_board = Board::new(BoardType::Omega);
         let turn = PlayerType::First;
         Self {
-            alpha_boards_available,
             alpha_boards,
             omega_board,
             turn,
@@ -43,7 +44,7 @@ impl Instance {
     pub fn get_board(&self, board: BoardType) -> Option<&Board> {
         match board {
             Alpha(alpha) if alpha > 0 && alpha <= ALPHA_BOARDS_NUM => {
-                Some(&self.alpha_boards[alpha])
+                Some(&self.alpha_boards[alpha - 1])
             }
             Omega => Some(&self.omega_board),
             _ => None,
@@ -52,13 +53,17 @@ impl Instance {
 
     pub fn play(&mut self, board: BoardType, col: usize) -> Option<GameMoveResult> {
         if let BoardType::Alpha(alpha) = board {
-            if let Some(board) = self.alpha_boards.get_mut(alpha) {
-                match board.play(self.turn, col) {
-                    Some(AlphaWin) => todo!(),
-                    _ => todo!(),
+            return match self.alpha_boards[alpha - 1].play(self.turn, col) {
+                Some(AlphaWin) => {
+                    self.switch_turn();
+                    Some(self.play_omega(col))
                 }
-            }
-            None
+                Some(result) => {
+                    self.switch_turn();
+                    Some(result)
+                }
+                _ => None,
+            };
         } else {
             None
         }
@@ -67,9 +72,13 @@ impl Instance {
     fn play_omega(&mut self, col: usize) -> GameMoveResult {
         self.omega_board.play(self.turn, col).unwrap()
     }
+
+    fn switch_turn(&mut self) {
+        self.turn = if self.turn == First { Second } else { First }
+    }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct Board {
     board_type: BoardType,
     slots: [[SlotType; BOARD_COLS]; BOARD_ROWS],
@@ -96,9 +105,12 @@ impl Board {
             return None;
         }
 
+        let col = col - 1;
+
         for row in (0..BOARD_ROWS).rev() {
-            if self.slots[col - 1][row] == Empty {
-                self.slots[col - 1][row] = Filled(player);
+            println!("checking ({},{})... = {:?}", row, col, self.slots[row][col]);
+            if self.slots[row][col] == Empty {
+                self.slots[row][col] = Filled(player);
 
                 if self.check_win_condition(player, row, col) {
                     self.reset_board();
@@ -190,25 +202,25 @@ impl Board {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlotType {
     Empty,
     Filled(PlayerType),
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PlayerType {
     First,
     Second,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BoardType {
     Alpha(usize),
     Omega,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GameMoveResult {
     Next,
     AlphaTie,
