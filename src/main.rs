@@ -1,15 +1,18 @@
 pub mod uc4;
 
-use crossterm::{self, cursor::*, queue, terminal::*};
+use crossterm::{self, queue};
+use core::panic;
 use std::io::*;
 use uc4::{
     BoardType::{self, *},
+    GameState::Win,
+    MoveResult::*,
     PlayerType::*,
     SlotType::*,
 };
 
 fn main() {
-    let instance = uc4::Instance::new();
+    let instance = uc4::GameInstance::new();
     let stdin = stdin();
     let stdout = stdout();
     let mut program = Program { instance, stdout };
@@ -35,7 +38,7 @@ fn main() {
 }
 
 struct Program {
-    instance: uc4::Instance,
+    instance: uc4::GameInstance,
     stdout: Stdout,
 }
 
@@ -96,11 +99,11 @@ impl Program {
             return;
         }
 
-        let board: usize;
+        let board_index: usize;
         let column: usize;
 
         if let Ok(value) = arguments[1].parse::<usize>() {
-            board = value;
+            board_index = value;
         } else {
             println!("could not read arguments `{:?}`", arguments);
             return;
@@ -113,25 +116,62 @@ impl Program {
             return;
         }
 
-        let result = self.instance.play(Alpha(board), column);
+        let board = Alpha(board_index);
+        let result = match self.instance.play(board, column) {
+            Some(result) => result,
+            None => {
+                println!("could not perform play with arguments `{:?}`", arguments);
+                return;
+            },
+        };
+
         match result {
-            Some(result) => {
-                self.print_board(Alpha(board));
-                println!("played on board alpha {}", board);
-            }
-            None => println!("could not perform play with arguments `{:?}`", arguments),
+            Normal(Alpha(index)) => {
+                self.print_board(Alpha(index));
+                println!("played on board alpha {}", index);
+            },
+            Normal(Omega) => {
+                self.print_board(Omega);
+                println!("won on board alpha {}", board_index);
+            },
+            BoardTie(Alpha(index)) => {
+                self.print_board(Alpha(index));
+                println!("tied on board alpha {}", index);
+            },
+            BoardTie(Omega) => {
+                self.print_board(Omega);
+                println!("won on board alpha {}", board_index);
+                println!("game tied!");
+            },
+            BoardWin(Alpha(_)) => unreachable!(),
+            BoardWin(Omega) => {
+                self.print_board(Omega);
+                println!("won on board alpha {}, game won!", board_index);
+                if let Win(player) = self.instance.state() {
+                    println!("game won by {}!", if player == Blue {"blue"} else {"red"});
+                } else {
+                    unreachable!();
+                }
+            },
         }
     }
 
     fn print_board(&mut self, board: BoardType) {
         use crossterm::style::*;
 
-        match board {
-            Alpha(alpha) => println!("Board α{}", alpha),
-            Omega => println!("Board Ω"),
-        }
+        let board = match self.instance.board(board) {
+            Some(board) => board,
+            None => panic!(),
+        };
 
-        let board = self.instance.get_board(board).unwrap();
+        match board.board_type() {
+            Alpha(alpha) => println!(
+                "Board α{}{}",
+                alpha,
+                if board.available() {""} else {" - Unavailable"}
+            ),
+            Omega => println!("Board Ω - Unavailable"),
+        }
 
         for col in 0..uc4::BOARD_COLS {
             print!(" {} ", col);
@@ -140,17 +180,17 @@ impl Program {
 
         for row in 0..uc4::BOARD_ROWS {
             for col in 0..uc4::BOARD_COLS {
-                let slot = board.get_slot(row, col).unwrap();
+                let slot = board.slot(row, col).unwrap();
                 match slot {
                     Empty => queue!(self.stdout, Print("[ ]")).expect("queue failed"),
-                    Filled(First) => queue!(
+                    Filled(Blue) => queue!(
                         self.stdout,
                         Print("["),
                         PrintStyledContent("O".with(Color::Blue)),
                         Print("]")
                     )
                     .expect("queue failed"),
-                    Filled(Second) => queue!(
+                    Filled(Red) => queue!(
                         self.stdout,
                         Print("["),
                         PrintStyledContent("O".with(Color::Red)),

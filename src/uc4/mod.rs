@@ -1,27 +1,59 @@
 use serde::{Deserialize, Serialize};
 
 use crate::uc4::{
-    BoardType::*, GameMoveResult::*, PlayerType::*, SlotType::*, WinConditionLines::*,
+    BoardType::*, MoveResult::*, GameState::*, PlayerType::*, SlotType::*, WinConditionLines::*,
 };
 
 pub const BOARD_ROWS: usize = 6;
 pub const BOARD_COLS: usize = 7;
 pub const ALPHA_BOARDS_NUM: usize = BOARD_COLS;
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-pub struct Instance {
-    alpha_boards: [Board; ALPHA_BOARDS_NUM],
-    omega_board: Board,
-    turn: PlayerType,
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SlotType {
+    Empty,
+    Filled(PlayerType),
 }
 
-impl Default for Instance {
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PlayerType {
+    Blue,
+    Red,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BoardType {
+    Alpha(usize),
+    Omega,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GameState {
+    Turn(PlayerType),
+    Tie,
+    Win(PlayerType),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MoveResult {
+    Normal(BoardType),
+    BoardTie(BoardType),
+    BoardWin(BoardType),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GameInstance {
+    alpha_boards: [Board; ALPHA_BOARDS_NUM],
+    omega_board: Board,
+    state: GameState,
+}
+
+impl Default for GameInstance {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Instance {
+impl GameInstance {
     pub fn new() -> Self {
         let alpha_boards = [
             Board::new(Alpha(0)),
@@ -33,63 +65,151 @@ impl Instance {
             Board::new(Alpha(6)),
         ];
         let omega_board = Board::new(BoardType::Omega);
-        let turn = PlayerType::First;
+        let state = GameState::Turn(Blue);
+
         Self {
             alpha_boards,
             omega_board,
-            turn,
+            state,
         }
     }
 
-    pub fn get_board(&self, board: BoardType) -> Option<&Board> {
+    pub fn board(&self, board: BoardType) -> Option<&Board> {
         match board {
-            Alpha(alpha) if alpha < ALPHA_BOARDS_NUM => Some(&self.alpha_boards[alpha]),
+            Alpha(alpha) => self.alpha_boards.get(alpha),
             Omega => Some(&self.omega_board),
-            _ => None,
         }
     }
 
-    pub fn play(&mut self, board: BoardType, col: usize) -> Option<GameMoveResult> {
-        if let BoardType::Alpha(alpha) = board {
-            return match self.alpha_boards[alpha].play(self.turn, col) {
-                Some(AlphaWin) => {
-                    let result = Some(self.play_omega(alpha));
-                    self.switch_turn();
-                    result
+    pub fn play(&mut self, board: BoardType, col: usize) -> Option<MoveResult> {
+        let turn = match self.state {
+            Turn(turn) => turn,
+            _ => return None,
+        };
+
+        let index = match board {
+            Alpha(index) if index < ALPHA_BOARDS_NUM => index,
+            _ => return None,
+        };
+
+        let mut result = match self.alpha_boards[index].play(turn, col) {
+            Some(result) => result,
+            _ => return None,
+        };
+
+        match result {
+            Normal(Alpha(_)) | BoardTie(Alpha(_)) => {
+                self.switch_turn();
+            },
+            BoardWin(Alpha(index)) => {
+                result = self.play_omega(index);
+                match result {
+                    Normal(Omega) => self.switch_turn(),
+                    BoardWin(Omega) => self.state = Win(turn),
+                    BoardTie(Omega) => self.state = Tie,
+                    Normal(Alpha(_)) | BoardTie(Alpha(_)) | BoardWin(Alpha(_)) => unreachable!(),
                 }
-                Some(result) => {
-                    self.switch_turn();
-                    Some(result)
+            },
+            Normal(Omega) | BoardTie(Omega) | BoardWin(Omega) => unreachable!(),
+        };
+
+        self.calculate_available_alpha_boards(result, col);
+
+        Some(result)
+    }
+
+    pub fn state(&self) -> GameState {
+        self.state
+    }
+
+    fn calculate_available_alpha_boards(&mut self, result: MoveResult, col: usize) {
+        assert!(col < ALPHA_BOARDS_NUM);
+
+        for board in self.alpha_boards.iter_mut() {
+            board.available = false;
+        }
+
+        match result {
+            Normal(Alpha(_)) if self.omega_board.slot(0, col).unwrap() == Empty => {
+                self.alpha_boards[col].available = true;
+            },
+            Normal(Alpha(_)) | BoardTie(Omega) | BoardWin(Omega)  => {
+                assert!(!matches!(self.state, Tie) || matches!(self.state, Win(_)));
+                for board in self.alpha_boards.iter_mut() {
+                    board.available = false;
                 }
-                _ => None,
-            };
-        } else {
-            None
+            },
+            Normal(Omega) | BoardTie(Alpha(_)) | BoardWin(Alpha(_)) => {
+                for (index, board) in self.alpha_boards.iter_mut().enumerate() {
+                    board.available = match self.omega_board.slot(0, index).unwrap() {
+                        Empty => true,
+                        Filled(_) => false,
+                    }
+                }
+
+                assert!(self.alpha_boards.iter().any(|b| b.available), "no available alpha boards");
+            },
         }
     }
 
-    fn play_omega(&mut self, col: usize) -> GameMoveResult {
-        self.omega_board.play(self.turn, col).unwrap()
+    fn play_omega(&mut self, col: usize) -> MoveResult {
+        let turn = match self.state {
+            Turn(turn) => turn,
+            _ => unreachable!(),
+        };
+
+        self.omega_board.available = true;
+        let result = self.omega_board.play(turn, col).unwrap();
+        self.omega_board.available = false;
+        return result;
     }
 
     fn switch_turn(&mut self) {
-        self.turn = if self.turn == First { Second } else { First }
+        if let Turn(turn) = self.state {
+            self.state = Turn(if turn == Blue { Red } else { Blue })
+        }
     }
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+enum WinConditionLines {
+    Horizontal,
+    Vertical,
+    FirstDiagonal,
+    SecondDiagonal,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Board {
+    available: bool,
     board_type: BoardType,
     slots: [[SlotType; BOARD_COLS]; BOARD_ROWS],
 }
 
 impl Board {
     pub fn new(board_type: BoardType) -> Self {
+        let available = if matches!(board_type, Omega) {
+            false
+        } else {
+            true
+        };
         let slots = [[SlotType::Empty; BOARD_COLS]; BOARD_ROWS];
-        Self { board_type, slots }
+
+        Self {
+            available,
+            board_type,
+            slots,
+        }
     }
 
-    pub fn get_slot(&self, row: usize, col: usize) -> Option<SlotType> {
+    pub fn available(&self) -> bool {
+        self.available
+    }
+
+    pub fn board_type(&self) -> BoardType {
+        self.board_type
+    }
+
+    pub fn slot(&self, row: usize, col: usize) -> Option<SlotType> {
         if row >= BOARD_ROWS || col >= BOARD_COLS {
             None
         } else {
@@ -97,38 +217,14 @@ impl Board {
         }
     }
 
-    fn play(&mut self, player: PlayerType, col: usize) -> Option<GameMoveResult> {
-        if col >= BOARD_COLS {
-            return None;
-        }
-
-        for row in (0..BOARD_ROWS).rev() {
-            if self.slots[row][col] == Empty {
-                self.slots[row][col] = Filled(player);
-
-                if self.check_win_condition(player, row, col) {
-                    self.reset_board();
-                    if self.board_type == Omega {
-                        return Some(OmegaWin);
-                    } else {
-                        return Some(AlphaWin);
-                    }
-                }
-
-                if self.check_tie_condition() {
-                    self.reset_board();
-                    if self.board_type == Omega {
-                        return Some(OmegaTie);
-                    } else {
-                        return Some(AlphaTie);
-                    }
-                }
-
-                return Some(Next);
+    fn check_tie_condition(&self) -> bool {
+        for col in 0..BOARD_COLS {
+            if matches!(self.slots[0][col], Empty) {
+                return false;
             }
         }
 
-        return None;
+        return true;
     }
 
     fn check_win_condition(&self, player: PlayerType, row: usize, col: usize) -> bool {
@@ -181,51 +277,34 @@ impl Board {
         return false;
     }
 
-    fn check_tie_condition(&self) -> bool {
-        for col in 0..BOARD_COLS {
-            if matches!(self.slots[0][col], Empty) {
-                return false;
+    fn play(&mut self, player: PlayerType, col: usize) -> Option<MoveResult> {
+        if col >= BOARD_COLS {
+            return None;
+        } else if !self.available {
+            return None;
+        }
+
+        for row in (0..BOARD_ROWS).rev() {
+            if self.slots[row][col] == Empty {
+                self.slots[row][col] = Filled(player);
+
+                return if self.check_win_condition(player, row, col) {
+                    self.reset();
+                    Some(BoardWin(self.board_type))
+                } else if self.check_tie_condition() {
+                    self.reset();
+                    Some(BoardTie(self.board_type))
+                } else {
+                    Some(Normal(self.board_type))
+                };
             }
         }
 
-        return true;
+        None
     }
 
-    fn reset_board(&mut self) {
+
+    fn reset(&mut self) {
         self.slots = [[SlotType::Empty; BOARD_COLS]; BOARD_ROWS]
     }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SlotType {
-    Empty,
-    Filled(PlayerType),
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PlayerType {
-    First,
-    Second,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum BoardType {
-    Alpha(usize),
-    Omega,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GameMoveResult {
-    Next,
-    AlphaTie,
-    AlphaWin,
-    OmegaTie,
-    OmegaWin,
-}
-
-enum WinConditionLines {
-    Horizontal,
-    Vertical,
-    FirstDiagonal,
-    SecondDiagonal,
 }
