@@ -1,11 +1,11 @@
 pub mod uc4;
 
-use crossterm::{self, queue};
 use core::panic;
+use crossterm::{self, queue};
 use std::io::*;
 use uc4::{
     BoardType::{self, *},
-    GameState::Win,
+    GameState::*,
     MoveResult::*,
     PlayerType::*,
     SlotType::*,
@@ -15,52 +15,46 @@ fn main() {
     let instance = uc4::GameInstance::new();
     let stdin = stdin();
     let stdout = stdout();
-    let mut program = Program { instance, stdout };
-
-    // queue!(program.stdout, Clear(ClearType::All), MoveTo(0, 0)).expect("queue failed");
-
-    program.print_board(uc4::BoardType::Omega);
-    program.stdout.flush().expect("flush failed");
-
-    loop {
-        let input = &mut String::new();
-        print!("\nUC4> ");
-        program.stdout.flush().expect("flush failed");
-
-        // queue!(program.stdout, Clear(ClearType::All), MoveTo(0, 0)).expect("queue failed");
-
-        if stdin.read_line(input).is_ok() {
-            program.handle_input(input.trim());
-        } else {
-            println!();
-        }
-    }
+    let mut program = Program {
+        instance,
+        stdin,
+        stdout,
+    };
+    program.run();
 }
 
 struct Program {
     instance: uc4::GameInstance,
+    stdin: Stdin,
     stdout: Stdout,
 }
 
 impl Program {
-    fn handle_input(&mut self, input: &str) {
-        let fragments: Vec<&str> = input.split(" ").collect();
+    fn run(&mut self) {
+        self.print_game_state();
+        self.print_board(uc4::BoardType::Omega);
+        self.stdout.flush().expect("flush failed");
 
-        match fragments[0].to_ascii_lowercase().as_str() {
-            "v" | "view" => {
-                self.view(fragments);
+        loop {
+            let input = &mut String::new();
+            print!("\nUC4> ");
+            self.stdout.flush().expect("flush failed");
+
+            // queue!(program.stdout, Clear(ClearType::All), MoveTo(0, 0)).expect("queue failed");
+
+            if self.stdin.read_line(input).is_err() {
+                println!();
+                continue;
             }
-            "p" | "play" => {
-                self.play(fragments);
-            }
-            "h" | "help" => {
-                println!("help:\t\t\tview this");
-                println!("play <b> <c>:\t\tplay on column <c> of alpha board <b>");
-                println!("view {{o/omega}}:\t\tview omega board");
-                println!("view {{a <b>/alpha <b>}}:\tview alpha board <b>");
-            }
-            _ => {
-                println!("could not read input `{}`", input);
+
+            let fragments: Vec<&str> = input.trim().split(" ").collect();
+
+            match fragments[0].to_ascii_lowercase().as_str() {
+                "v" | "view" => self.view(fragments),
+                "p" | "play" => self.play(fragments),
+                "q" | "quit" => break,
+                "h" | "help" => self.help(),
+                _ => println!("could not read input `{}`", input),
             }
         }
     }
@@ -73,6 +67,7 @@ impl Program {
                     return;
                 }
 
+                self.print_game_state();
                 self.print_board(Omega);
             }
             "a" | "alpha" => {
@@ -82,6 +77,7 @@ impl Program {
                 }
 
                 if let Ok(board) = arguments[2].parse::<usize>() {
+                    self.print_game_state();
                     self.print_board(Alpha(board));
                 } else {
                     println!("could not read arguments `{:?}`", arguments);
@@ -122,38 +118,62 @@ impl Program {
             None => {
                 println!("could not perform play with arguments `{:?}`", arguments);
                 return;
-            },
+            }
         };
 
         match result {
             Normal(Alpha(index)) => {
+                self.print_game_state();
                 self.print_board(Alpha(index));
                 println!("played on board alpha {}", index);
-            },
+            }
             Normal(Omega) => {
+                self.print_game_state();
                 self.print_board(Omega);
                 println!("won on board alpha {}", board_index);
-            },
+            }
             BoardTie(Alpha(index)) => {
+                self.print_game_state();
                 self.print_board(Alpha(index));
                 println!("tied on board alpha {}", index);
-            },
+            }
             BoardTie(Omega) => {
                 self.print_board(Omega);
                 println!("won on board alpha {}", board_index);
                 println!("game tied!");
-            },
+            }
             BoardWin(Alpha(_)) => unreachable!(),
             BoardWin(Omega) => {
                 self.print_board(Omega);
-                println!("won on board alpha {}, game won!", board_index);
+                println!("won on board alpha {}", board_index);
                 if let Win(player) = self.instance.state() {
-                    println!("game won by {}!", if player == Blue {"blue"} else {"red"});
+                    println!(
+                        "game won by {}!",
+                        if player == Blue { "blue" } else { "red" }
+                    );
                 } else {
                     unreachable!();
                 }
-            },
+            }
         }
+    }
+
+    fn help(&self) {
+        println!("help:\t\t\tview this");
+        println!("play <b> <c>:\t\tplay on column <c> of alpha board <b>");
+        println!("view {{a <b>/alpha <b>}}:\tview alpha board <b>");
+        println!("view {{o/omega}}:\t\tview omega board");
+        println!("quit:\t\t\tquit the program");
+    }
+
+    fn print_game_state(&mut self) {
+        match self.instance.state() {
+            Turn(player) => println!("{}'s turn:", if player == Blue { "blue" } else { "red" }),
+            Tie => println!("game tied"),
+            Win(player) => println!("{} won:", if player == Blue { "blue" } else { "red" }),
+        }
+
+        println!("");
     }
 
     fn print_board(&mut self, board: BoardType) {
@@ -168,7 +188,11 @@ impl Program {
             Alpha(alpha) => println!(
                 "Board α{}{}",
                 alpha,
-                if board.available() {""} else {" - Unavailable"}
+                if board.available() {
+                    ""
+                } else {
+                    " - Unavailable"
+                }
             ),
             Omega => println!("Board Ω - Unavailable"),
         }

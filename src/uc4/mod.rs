@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::uc4::{
-    BoardType::*, MoveResult::*, GameState::*, PlayerType::*, SlotType::*, WinConditionLines::*,
+    BoardType::*, GameState::*, MoveResult::*, PlayerType::*, SlotType::*, WinConditionLines::*,
 };
 
 pub const BOARD_ROWS: usize = 6;
@@ -100,7 +100,7 @@ impl GameInstance {
         match result {
             Normal(Alpha(_)) | BoardTie(Alpha(_)) => {
                 self.switch_turn();
-            },
+            }
             BoardWin(Alpha(index)) => {
                 result = self.play_omega(index);
                 match result {
@@ -109,7 +109,7 @@ impl GameInstance {
                     BoardTie(Omega) => self.state = Tie,
                     Normal(Alpha(_)) | BoardTie(Alpha(_)) | BoardWin(Alpha(_)) => unreachable!(),
                 }
-            },
+            }
             Normal(Omega) | BoardTie(Omega) | BoardWin(Omega) => unreachable!(),
         };
 
@@ -132,13 +132,13 @@ impl GameInstance {
         match result {
             Normal(Alpha(_)) if self.omega_board.slot(0, col).unwrap() == Empty => {
                 self.alpha_boards[col].available = true;
-            },
-            Normal(Alpha(_)) | BoardTie(Omega) | BoardWin(Omega)  => {
+            }
+            Normal(Alpha(_)) | BoardTie(Omega) | BoardWin(Omega) => {
                 assert!(!matches!(self.state, Tie) || matches!(self.state, Win(_)));
                 for board in self.alpha_boards.iter_mut() {
                     board.available = false;
                 }
-            },
+            }
             Normal(Omega) | BoardTie(Alpha(_)) | BoardWin(Alpha(_)) => {
                 for (index, board) in self.alpha_boards.iter_mut().enumerate() {
                     board.available = match self.omega_board.slot(0, index).unwrap() {
@@ -147,8 +147,11 @@ impl GameInstance {
                     }
                 }
 
-                assert!(self.alpha_boards.iter().any(|b| b.available), "no available alpha boards");
-            },
+                assert!(
+                    self.alpha_boards.iter().any(|b| b.available),
+                    "no available alpha boards"
+                );
+            }
         }
     }
 
@@ -217,64 +220,8 @@ impl Board {
         }
     }
 
-    fn check_tie_condition(&self) -> bool {
-        for col in 0..BOARD_COLS {
-            if matches!(self.slots[0][col], Empty) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    fn check_win_condition(&self, player: PlayerType, row: usize, col: usize) -> bool {
-        for line in [Horizontal, Vertical, FirstDiagonal, SecondDiagonal] {
-            let mut counter = 0;
-            let offsets: Vec<i32> = (-3..4).collect();
-            for offset in offsets {
-                let mut row_to_check = row as i32;
-                let mut col_to_check = col as i32;
-
-                match line {
-                    Horizontal => {
-                        col_to_check += offset;
-                    }
-                    Vertical => {
-                        row_to_check += offset;
-                    }
-                    FirstDiagonal => {
-                        row_to_check += offset;
-                        col_to_check += offset;
-                    }
-                    SecondDiagonal => {
-                        row_to_check -= offset;
-                        col_to_check += offset;
-                    }
-                }
-
-                if row_to_check < 0 || row_to_check >= BOARD_ROWS as i32 {
-                    counter = 0;
-                    continue;
-                }
-
-                if col_to_check < 0 || col_to_check >= BOARD_COLS as i32 {
-                    counter = 0;
-                    continue;
-                }
-
-                let slot = self.slots[row_to_check as usize][col_to_check as usize];
-                if slot == Filled(player) {
-                    counter += 1;
-                    if counter >= 4 {
-                        return true;
-                    }
-                } else {
-                    counter = 0;
-                }
-            }
-        }
-
-        return false;
+    pub fn slots(&self) -> &[[SlotType; BOARD_COLS]; BOARD_ROWS] {
+        &self.slots
     }
 
     fn play(&mut self, player: PlayerType, col: usize) -> Option<MoveResult> {
@@ -288,10 +235,10 @@ impl Board {
             if self.slots[row][col] == Empty {
                 self.slots[row][col] = Filled(player);
 
-                return if self.check_win_condition(player, row, col) {
+                return if check_win_condition(self, player, row, col) {
                     self.reset();
                     Some(BoardWin(self.board_type))
-                } else if self.check_tie_condition() {
+                } else if check_tie_condition(self) {
                     self.reset();
                     Some(BoardTie(self.board_type))
                 } else {
@@ -303,8 +250,67 @@ impl Board {
         None
     }
 
-
     fn reset(&mut self) {
         self.slots = [[SlotType::Empty; BOARD_COLS]; BOARD_ROWS]
     }
+}
+
+pub fn check_tie_condition(board: &Board) -> bool {
+    for col in 0..BOARD_COLS {
+        if matches!(board.slots[0][col], Empty) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+pub fn check_win_condition(board: &Board, player: PlayerType, row: usize, col: usize) -> bool {
+    for line in [Horizontal, Vertical, FirstDiagonal, SecondDiagonal] {
+        let mut counter = 0;
+        let offsets: Vec<i32> = (-3..4).collect();
+        for offset in offsets {
+            let mut row_to_check = row as i32;
+            let mut col_to_check = col as i32;
+
+            match line {
+                Horizontal => {
+                    col_to_check += offset;
+                }
+                Vertical => {
+                    row_to_check += offset;
+                }
+                FirstDiagonal => {
+                    row_to_check += offset;
+                    col_to_check += offset;
+                }
+                SecondDiagonal => {
+                    row_to_check -= offset;
+                    col_to_check += offset;
+                }
+            }
+
+            if row_to_check < 0 || row_to_check >= BOARD_ROWS as i32 {
+                counter = 0;
+                continue;
+            }
+
+            if col_to_check < 0 || col_to_check >= BOARD_COLS as i32 {
+                counter = 0;
+                continue;
+            }
+
+            let slot = board.slots[row_to_check as usize][col_to_check as usize];
+            if slot == Filled(player) {
+                counter += 1;
+                if counter >= 4 {
+                    return true;
+                }
+            } else {
+                counter = 0;
+            }
+        }
+    }
+
+    return false;
 }
