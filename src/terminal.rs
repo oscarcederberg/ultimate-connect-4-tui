@@ -1,10 +1,13 @@
 pub mod uc4;
+pub mod bots;
 
 use core::panic;
+use bots::{random_bot::RandomBot, Bot};
 use crossterm::{self, queue};
-use std::io::*;
+use std::io::{stdin, stdout, Stdin, Stdout, Write};
 use uc4::{
     BoardType::{self, *},
+    GameInstance,
     GameState::*,
     MoveResult::*,
     PlayerType::*,
@@ -12,7 +15,7 @@ use uc4::{
 };
 
 fn main() {
-    let instance = uc4::GameInstance::new();
+    let instance = GameInstance::new();
     let stdin = stdin();
     let stdout = stdout();
     let mut program = Program {
@@ -24,7 +27,7 @@ fn main() {
 }
 
 struct Program {
-    instance: uc4::GameInstance,
+    instance: GameInstance,
     stdin: Stdin,
     stdout: Stdout,
 }
@@ -49,22 +52,123 @@ impl Program {
 
             let fragments: Vec<&str> = input.trim().split(" ").collect();
 
-            match fragments[0].to_ascii_lowercase().as_str() {
+            let result = match fragments[0].to_ascii_lowercase().as_str() {
+                "b" | "bots" => self.bots(fragments),
                 "v" | "view" => self.view(fragments),
                 "p" | "play" => self.play(fragments),
-                "q" | "quit" => break,
                 "h" | "help" => self.help(),
-                _ => println!("could not read input `{}`", input),
+                "q" | "quit" => break,
+                _ => None,
+            };
+
+            if matches!(result, None) {
+                println!("could not read input: \"{}\"", input.trim());
             }
         }
     }
 
-    fn view(&mut self, arguments: Vec<&str>) {
+    fn bots(&mut self, arguments: Vec<&str>) -> Option<()> {
+        if arguments.len() != 3 {
+            return None;
+        }
+
+        let mut bot_1 = match arguments[1] {
+            "random" => RandomBot::new(),
+            _ => return None,
+        };
+
+        let mut bot_2 = match arguments[1] {
+            "random" => RandomBot::new(),
+            _ => return None,
+        };
+
+        let total_games = 1000;
+        let mut bot_1_wins = 0;
+        let mut bot_2_wins = 0;
+
+        for _ in 0..total_games {
+            let mut instance = GameInstance::new();
+            let mut state = instance.state();
+            let mut end_condition = state == Win(Blue) || state == Win(Red) || state == Tie;
+
+            while !end_condition {
+                let bot_move = match bot_1.play(&instance) {
+                    Some(bot_move) => bot_move,
+                    None => {
+                        bot_2_wins += 1;
+                        println!("bot 1 failed to make a move, bot 2 wins");
+                        break;
+                    },
+                };
+
+                match instance.play(bot_move.board, bot_move.column) {
+                    Some(_) => {},
+                    None => {
+                        bot_2_wins += 1;
+                        println!("bot 1 made an illegal move, bot 2 wins");
+                        break;
+                    },
+                }
+
+                state = instance.state();
+                end_condition = state == Win(Blue) || state == Win(Red) || state == Tie;
+
+                if end_condition {
+                    break;
+                }
+
+                let bot_move = match bot_2.play(&instance) {
+                    Some(bot_move) => bot_move,
+                    None => {
+                        bot_1_wins += 1;
+                        println!("bot 2 failed to make a move, bot 1 wins");
+                        break;
+                    },
+                };
+
+                match instance.play(bot_move.board, bot_move.column) {
+                    Some(_) => {},
+                    None => {
+                        bot_1_wins += 1;
+                        println!("bot 2 made an illegal move, bot 1 wins");
+                        break;
+                    },
+                }
+
+                state = instance.state();
+                end_condition = state == Win(Blue) || state == Win(Red) || state == Tie;
+            }
+
+            match state {
+                Win(Blue) => {
+                    bot_1_wins += 1;
+                    println!("bot 1 won!");
+                }
+                Win(Red) => {
+                    bot_2_wins += 1;
+                    println!("bot 2 won!");
+                },
+                Tie => println!("game was a tie!"),
+                Turn(_) => {}
+            }
+        }
+
+        println!("games played: {}", total_games);
+        println!("bot 1 wins: {}", bot_1_wins);
+        println!("bot 2 wins: {}", bot_2_wins);
+
+        Some(())
+    }
+
+    fn view(&mut self, arguments: Vec<&str>) -> Option<()> {
+        if arguments.len() < 2 {
+            return None;
+        }
+
         match arguments[1] {
             "o" | "omega" => {
                 if arguments.len() != 2 {
-                    println!("could not read arguments `{:?}`", arguments);
-                    return;
+                    return None;
                 }
 
                 self.print_game_state();
@@ -72,27 +176,27 @@ impl Program {
             }
             "a" | "alpha" => {
                 if arguments.len() != 3 {
-                    println!("could not read arguments `{:?}`", arguments);
-                    return;
+                    return None;
                 }
 
                 if let Ok(board) = arguments[2].parse::<usize>() {
                     self.print_game_state();
                     self.print_board(Alpha(board));
                 } else {
-                    println!("could not read arguments `{:?}`", arguments);
+                    return None;
                 }
             }
             _ => {
-                println!("could not read arguments `{:?}`", arguments);
+                    return None;
             }
         }
+
+        Some(())
     }
 
-    fn play(&mut self, arguments: Vec<&str>) {
+    fn play(&mut self, arguments: Vec<&str>) -> Option<()> {
         if arguments.len() != 3 {
-            println!("could not read arguments `{:?}`", arguments);
-            return;
+            return None;
         }
 
         let board_index: usize;
@@ -101,23 +205,20 @@ impl Program {
         if let Ok(value) = arguments[1].parse::<usize>() {
             board_index = value;
         } else {
-            println!("could not read arguments `{:?}`", arguments);
-            return;
+            return None;
         }
 
         if let Ok(value) = arguments[2].parse::<usize>() {
             column = value;
         } else {
-            println!("could not read arguments `{:?}`", arguments);
-            return;
+            return None;
         }
 
         let board = Alpha(board_index);
         let result = match self.instance.play(board, column) {
             Some(result) => result,
             None => {
-                println!("could not perform play with arguments `{:?}`", arguments);
-                return;
+                return None;
             }
         };
 
@@ -156,14 +257,17 @@ impl Program {
                 }
             }
         }
+        Some(())
     }
 
-    fn help(&self) {
+    fn help(&self) -> Option<()> {
         println!("help:\t\t\tview this");
+        println!("bots <a> <b>:\t\tperform bot competition between bot <a> and <b>");
         println!("play <b> <c>:\t\tplay on column <c> of alpha board <b>");
         println!("view {{a <b>/alpha <b>}}:\tview alpha board <b>");
         println!("view {{o/omega}}:\t\tview omega board");
         println!("quit:\t\t\tquit the program");
+        Some(())
     }
 
     fn print_game_state(&mut self) {
@@ -173,7 +277,7 @@ impl Program {
             Win(player) => println!("{} won:", if player == Blue { "blue" } else { "red" }),
         }
 
-        println!("");
+        println!();
     }
 
     fn print_board(&mut self, board: BoardType) {

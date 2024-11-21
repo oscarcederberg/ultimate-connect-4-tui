@@ -40,7 +40,7 @@ pub enum MoveResult {
     BoardWin(BoardType),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GameInstance {
     alpha_boards: [Board; ALPHA_BOARDS_NUM],
     omega_board: Board,
@@ -181,7 +181,7 @@ enum WinConditionLines {
     SecondDiagonal,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Board {
     available: bool,
     board_type: BoardType,

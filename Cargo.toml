@@ -3,6 +3,11 @@ name = "ultimate-connact-4-tui"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "terminal"
+path = "src/terminal.rs"
+
 [dependencies]
 crossterm = "0.28.1"
+rand = "0.8.5"
 serde = { version = "1.0.214", features = ["derive"] }
